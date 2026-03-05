@@ -183,6 +183,13 @@ export default function IDE() {
 
   const saveFile = useCallback(async () => {
     if (!activeTab) return;
+    // Pin the tab (remove italic/preview state) on save even if not dirty
+    if (activeTab.isPreviewFile) {
+      setTabs((prev) => prev.map((t) =>
+        t.path === activeTab.path ? { ...t, isPreviewFile: false } : t
+      ));
+    }
+    if (!activeTab.isDirty) return;
     try {
       await window.electronAPI.fs.writeFile(activeTab.path, activeTab.content);
       setTabs((prev) => prev.map((t) =>

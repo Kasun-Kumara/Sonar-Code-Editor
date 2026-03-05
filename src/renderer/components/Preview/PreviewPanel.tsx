@@ -253,20 +253,20 @@ export default function PreviewPanel({ workspaceRoot, onOpenInTab, isFullTab, on
   return (
     <div className={`preview-panel ${isFullTab ? 'preview-full-tab' : ''}`}>
       <div className="preview-toolbar">
-        <button className="preview-btn" onClick={goBack} disabled={!canGoBack} title="Go Back">
+        <button className="preview-btn preview-btn-hide-small" onClick={goBack} disabled={!canGoBack} title="Go Back">
           <ArrowLeft size={16} />
         </button>
-        <button className="preview-btn" onClick={goForward} disabled={!canGoForward} title="Go Forward">
+        <button className="preview-btn preview-btn-hide-small" onClick={goForward} disabled={!canGoForward} title="Go Forward">
           <ArrowRight size={16} />
         </button>
-        <button className="preview-btn" onClick={refresh} title="Reload">
+        <button className="preview-btn preview-btn-hide-small" onClick={refresh} title="Reload">
           <RotateCw size={16} className={isLoading ? 'spinning' : ''} />
         </button>
-        <button className="preview-btn" onClick={navigateHome} title="Home">
+        <button className="preview-btn preview-btn-hide-small" onClick={navigateHome} title="Home">
           <Home size={16} />
         </button>
 
-        <form className="preview-address-bar-form" onSubmit={handleUrlSubmit} style={{ flex: 1, display: 'flex' }}>
+        <form className="preview-address-bar-form" onSubmit={handleUrlSubmit} style={{ flex: 1, display: 'flex', minWidth: 0 }}>
           <input
             type="text"
             className="preview-address-bar input"
@@ -277,18 +277,18 @@ export default function PreviewPanel({ workspaceRoot, onOpenInTab, isFullTab, on
         </form>
 
         {!isFullTab && onOpenInTab && (
-          <button className="preview-btn" onClick={onOpenInTab} title="Open in Editor Tab">
+          <button className="preview-btn preview-btn-hide-small" onClick={onOpenInTab} title="Open in Editor Tab">
             <ExternalLink size={16} />
           </button>
         )}
         <button className={`preview-btn ${consoleOpen ? 'active' : ''}`} onClick={toggleConsole} title="Toggle Console">
           <Terminal size={16} />
         </button>
-        <button className={`preview-btn ${devtoolsOpen ? 'active' : ''}`} onClick={openInspector} title="Toggle Inspector">
+        <button className={`preview-btn preview-btn-hide-small ${devtoolsOpen ? 'active' : ''}`} onClick={openInspector} title="Toggle Inspector">
           <Monitor size={16} />
         </button>
         {!isFullTab && onClose && (
-          <button className="preview-btn" onClick={onClose} title="Close Preview Panel">
+          <button className="preview-btn" onClick={onClose} title="Close Preview Panel" style={{ flexShrink: 0 }}>
             <X size={16} />
           </button>
         )}

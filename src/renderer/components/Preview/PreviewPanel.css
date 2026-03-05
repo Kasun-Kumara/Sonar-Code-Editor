@@ -1,4 +1,5 @@
 .preview-panel {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -22,6 +23,19 @@
   gap: 8px;
   min-height: 44px;
   -webkit-app-region: no-drag;
+  flex-wrap: nowrap;
+}
+
+@container (max-width: 320px) {
+  .preview-btn-hide-small {
+    display: none !important;
+  }
+}
+
+@container (max-width: 250px) {
+  .preview-address-bar-form {
+    display: none !important;
+  }
 }
 
 .preview-btn {
@@ -35,6 +49,7 @@
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .preview-btn:hover:not(:disabled) {
@@ -54,6 +69,7 @@
 
 .preview-address-bar {
   flex: 1;
+  min-width: 0;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 6px;
