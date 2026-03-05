@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import MonacoEditor, { type OnMount } from '@monaco-editor/react';
-import { FileCode2, X, Monitor } from 'lucide-react';
+import { FileCode2, X, Monitor, FileJson, FileText, FileImage, Terminal, Database, ShieldAlert, File } from 'lucide-react';
 import { OpenTab } from '../../pages/IDE';
 import PreviewPanel from '../Preview/PreviewPanel';
 import './EditorPanel.css';
@@ -42,6 +42,44 @@ const EDITOR_OPTIONS = {
   autoSurround: 'languageDefined' as const,
   autoClosingOvertype: 'always' as const,
 };
+
+function getTabIcon(tab: OpenTab) {
+  if (tab.type === 'preview') return <Monitor size={14} className="tab-icon" color="#3b82f6" />;
+  if (tab.type === 'image') return <FileImage size={14} className="tab-icon" color="#8b5cf6" />;
+
+  const ext = tab.name.split('.').pop()?.toLowerCase() || '';
+  switch (ext) {
+    case 'js':
+    case 'jsx':
+    case 'ts':
+    case 'tsx':
+      return <FileCode2 size={14} className="tab-icon" color="#eab308" />;
+    case 'json':
+      return <FileJson size={14} className="tab-icon" color="#22c55e" />;
+    case 'html':
+      return <FileCode2 size={14} className="tab-icon" color="#ef4444" />;
+    case 'css':
+      return <FileCode2 size={14} className="tab-icon" color="#3b82f6" />;
+    case 'md':
+      return <FileText size={14} className="tab-icon" color="#a1a1aa" />;
+    case 'png':
+    case 'jpg':
+    case 'svg':
+    case 'jpeg':
+    case 'ico':
+    case 'webp':
+      return <FileImage size={14} className="tab-icon" color="#8b5cf6" />;
+    case 'sh':
+    case 'bash':
+      return <Terminal size={14} className="tab-icon" color="#10b981" />;
+    case 'sql':
+      return <Database size={14} className="tab-icon" color="#f97316" />;
+    case 'env':
+      return <ShieldAlert size={14} className="tab-icon" color="#eab308" />;
+    default:
+      return <File size={14} className="tab-icon" color="var(--text-muted)" />;
+  }
+}
 
 export default function EditorPanel({
   tabs, activeTabPath, onTabClick, onTabDoubleClick, onTabClose, onContentChange, onSave, workspaceRoot, theme = 'dark'
@@ -131,7 +169,7 @@ export default function EditorPanel({
             onClick={() => onTabClick(tab.path)}
             onDoubleClick={() => onTabDoubleClick?.(tab.path)}
           >
-            {tab.type === 'preview' && <Monitor size={14} className="tab-icon" />}
+            {getTabIcon(tab)}
             <span className="tab-name" style={{ fontStyle: tab.isPreviewFile && !tab.isDirty ? 'italic' : 'normal' }}>
               {tab.name}
             </span>
