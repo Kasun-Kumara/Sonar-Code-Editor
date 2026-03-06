@@ -22,6 +22,11 @@
   --success: #10b981;
   --danger: #ef4444;
   --warning: #f59e0b;
+  --info: #6366f1;
+  
+  --online: #10b981;
+  --offline: #ef4444;
+  --idle: #f59e0b;
 }
 
 [data-theme="light"] {
@@ -45,6 +50,11 @@
   --success: #059669;
   --danger: #dc2626;
   --warning: #d97706;
+  --info: #4f46e5;
+  
+  --online: #059669;
+  --offline: #dc2626;
+  --idle: #d97706;
 }
 
 * {

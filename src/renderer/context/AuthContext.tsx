@@ -21,6 +21,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const cached = JSON.parse(localStorage.getItem('devwatch_session') || 'null');
     if (cached) {
       setUser(cached);
+      // Mark session as online in DB on restore (fire-and-forget)
+      if (cached.$id && cached.teamName) {
+        upsertSession(cached.$id, cached.teamName, 'online').catch(() => {});
+      }
     }
     setLoading(false);
   }, []);

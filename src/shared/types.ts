@@ -31,7 +31,7 @@ export interface ActivityLog {
   currentFile: string;
   status: 'online' | 'offline';
   timestamp: string;
-  event?: 'went_online' | 'went_offline' | 'heartbeat';
+  event?: 'went_online' | 'went_offline' | 'heartbeat' | 'offline_sync';
   appName?: string;
   windowTitle?: string;
 }
