@@ -130,6 +130,7 @@ export default function AdminSettingsModal({
   };
 
   const handleFlushLogs = async () => {
+    if (!window.confirm('Are you sure you want to flush all activity logs? This action cannot be undone.')) return;
     setFlushing(true);
     setFlushError('');
     setFlushSuccess('');
