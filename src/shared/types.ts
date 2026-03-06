@@ -135,6 +135,8 @@ export interface ElectronAPI {
   };
   system: {
     getActiveWindow: () => Promise<string | null>;
+    checkPermission: () => Promise<boolean>;
+    openPrivacyPrefs: () => Promise<void>;
   };
   clipboard: {
     readText: () => Promise<string>;

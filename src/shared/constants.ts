@@ -30,6 +30,9 @@ export const IPC_CHANNELS = {
   DEVTOOLS_RESIZE: 'devtools:resize',
   // Active Window
   GET_ACTIVE_WINDOW: 'system:getActiveWindow',
+  // System Permission
+  SYSTEM_CHECK_PERMISSION: 'system:checkPermission',
+  SYSTEM_OPEN_PREFS: 'system:openPrivacyPrefs',
   // Clipboard
   CLIPBOARD_READ_TEXT: 'clipboard:readText',
 } as const;

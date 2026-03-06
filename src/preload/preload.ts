@@ -48,6 +48,8 @@ const api: ElectronAPI = {
   },
   system: {
     getActiveWindow: () => ipcRenderer.invoke(IPC_CHANNELS.GET_ACTIVE_WINDOW),
+    checkPermission: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_CHECK_PERMISSION),
+    openPrivacyPrefs: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_OPEN_PREFS),
   },
   clipboard: {
     readText: () => ipcRenderer.invoke(IPC_CHANNELS.CLIPBOARD_READ_TEXT),

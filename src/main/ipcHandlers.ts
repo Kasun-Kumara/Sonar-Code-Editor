@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { IpcMain, Dialog, webContents, BrowserView, BrowserWindow, clipboard } from 'electron';
+import { IpcMain, Dialog, webContents, BrowserView, BrowserWindow, clipboard, shell } from 'electron';
 import { FileNode } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import { startStaticServer, stopStaticServer, getServerUrl } from './staticServer';
@@ -268,10 +268,27 @@ export function registerFsHandlers(ipcMain: IpcMain, dialog: Dialog): void {
         const cmd = 'powershell -NoProfile -Command "(Add-Type -MemberDefinition \'[DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow(); [DllImport(\\\"user32.dll\\\", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);\' -Name Win32 -Namespace Native -PassThru)| Out-Null; $h=[Native.Win32]::GetForegroundWindow(); $sb=New-Object System.Text.StringBuilder 256; [Native.Win32]::GetWindowText($h,$sb,256)|Out-Null; $sb.ToString()"';
         title = execSync(cmd, { timeout: 3000, encoding: 'utf-8' }).trim();
       } else if (platform === 'darwin') {
-        title = execSync(
-          'osascript -e \'tell application "System Events" to get name of first application process whose frontmost is true\'',
+        // Use NSWorkspace via JXA to get the localized app name and bundle ID.
+        // AppleScript's `name of application process` returns the process name
+        // which is "Electron" for all Electron-based apps (VS Code, etc.),
+        // making them indistinguishable. NSWorkspace gives the proper display
+        // name (e.g. "Visual Studio Code") and a unique bundle identifier.
+        const OWN_BUNDLE_ID = 'com.devwatch.exam-ide';
+        const info = execSync(
+          `osascript -l JavaScript -e 'ObjC.import("AppKit"); var ws = $.NSWorkspace.sharedWorkspace; var app = ws.frontmostApplication; (app.bundleIdentifier.js) + "||" + (app.localizedName.js)'`,
           { timeout: 3000, encoding: 'utf-8' }
         ).trim();
+
+        const separatorIdx = info.indexOf('||');
+        const bundleId = separatorIdx >= 0 ? info.substring(0, separatorIdx) : '';
+        const appName = separatorIdx >= 0 ? info.substring(separatorIdx + 2) : info;
+
+        // Filter out our own app reliably by bundle identifier
+        if (bundleId === OWN_BUNDLE_ID) {
+          return null;
+        }
+
+        title = appName;
       } else {
         // Linux
         title = execSync('xdotool getactivewindow getwindowname 2>/dev/null || echo ""', {
@@ -279,10 +296,12 @@ export function registerFsHandlers(ipcMain: IpcMain, dialog: Dialog): void {
         }).trim();
       }
 
-      // Final check: compare with our own window titles to filter out self-detection
-      const ownTitles = allWindows.map(w => w.getTitle()).filter(Boolean);
-      if (ownTitles.some(ownTitle => title === ownTitle || title.includes(ownTitle) || ownTitle.includes(title))) {
-        return null;
+      // Non-macOS: fallback filter by comparing with own window titles
+      if (platform !== 'darwin') {
+        const ownTitles = allWindows.map(w => w.getTitle()).filter(Boolean);
+        if (ownTitles.some(ownTitle => title === ownTitle || title.includes(ownTitle) || ownTitle.includes(title))) {
+          return null;
+        }
       }
 
       return title || null;
@@ -294,5 +313,43 @@ export function registerFsHandlers(ipcMain: IpcMain, dialog: Dialog): void {
   // Clipboard read
   ipcMain.handle(IPC_CHANNELS.CLIPBOARD_READ_TEXT, async () => {
     return clipboard.readText();
+  });
+
+  // Permission check: returns true if Automation/System Events access is granted on macOS
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_CHECK_PERMISSION, async (): Promise<boolean> => {
+    if (process.platform !== 'darwin') return true;
+    return new Promise((resolve) => {
+      try {
+        // Must query a protected resource to actually exercise the Automation
+        // permission. A simple `return "ok"` succeeds without permission.
+        execSync(
+          'osascript -e \'tell application "System Events" to get name of first application process whose frontmost is true\'',
+          { timeout: 5000, encoding: 'utf-8' }
+        );
+        resolve(true);
+      } catch (err: unknown) {
+        const msg = String((err as Error).message || '');
+        if (
+          msg.includes('Not authorized') ||
+          msg.includes('1743') ||
+          msg.includes('not allowed to send Apple events') ||
+          msg.includes('errAEEventNotPermitted') ||
+          msg.includes('not allowed assistive access')
+        ) {
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      }
+    });
+  });
+
+  // Open macOS Privacy & Security → Automation settings
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_PREFS, async () => {
+    if (process.platform === 'darwin') {
+      await shell.openExternal(
+        'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation'
+      );
+    }
   });
 }
