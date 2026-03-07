@@ -77,18 +77,18 @@ export function CollaborationProvider({
   }, [userName]);
 
   // Subscribe to status changes from main process
+  // Note: connectedUsers is now tracked via Yjs awareness, not from main process
   useEffect(() => {
     const unsubscribe = window.electronAPI.collaboration.onStatusChange(
       (newStatus) => {
         setStatus(newStatus);
-        setConnectedUsers(newStatus.connectedUsers);
+        // Don't update connectedUsers from main process - it's handled via Yjs awareness
       },
     );
 
     // Get initial status
     window.electronAPI.collaboration.getStatus().then((initialStatus) => {
       setStatus(initialStatus);
-      setConnectedUsers(initialStatus.connectedUsers);
     });
 
     return () => {
@@ -150,8 +150,8 @@ export function CollaborationProvider({
         color: userColorRef.current,
       });
 
-      // Listen for awareness changes (user list updates)
-      provider.awareness.on("change", () => {
+      // Helper to update user list from awareness states
+      const updateUserList = () => {
         const states = Array.from(provider.awareness.getStates().entries());
         const users: CollaborationUser[] = states
           .filter(([, state]) => state.user)
@@ -160,16 +160,30 @@ export function CollaborationProvider({
             name: state.user.name,
             color: state.user.color,
           }));
+        console.log("Connected users:", users.map((u) => u.name).join(", "));
         setConnectedUsers(users);
-      });
+      };
+
+      // Listen for awareness changes (user list updates)
+      provider.awareness.on("change", updateUserList);
+
+      // Update user list immediately with local user
+      updateUserList();
 
       // Connection status logging
       provider.on("status", (event: { status: string }) => {
         console.log("WebSocket status:", event.status);
+        // Re-update user list on connection changes
+        if (event.status === "connected") {
+          updateUserList();
+        }
       });
 
       provider.on("sync", (isSynced: boolean) => {
         console.log("Yjs sync status:", isSynced);
+        if (isSynced) {
+          updateUserList();
+        }
       });
 
       return { ydoc, provider };
@@ -267,6 +281,18 @@ export function CollaborationProvider({
       if (!model) {
         console.warn("Cannot bind editor: No model");
         return;
+      }
+
+      // If Y.Text is empty but model has content, initialize Y.Text with model content
+      // This ensures the first person to open a file shares their content
+      const currentYTextContent = ytext.toString();
+      const currentModelContent = model.getValue();
+
+      if (currentYTextContent.length === 0 && currentModelContent.length > 0) {
+        console.log(
+          `Initializing collaborative document from local file: ${docName}`,
+        );
+        ytext.insert(0, currentModelContent);
       }
 
       // Create the Monaco binding

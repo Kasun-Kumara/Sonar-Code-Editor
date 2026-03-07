@@ -47,7 +47,14 @@ export default function CollaborationModal({
           <CollaborationPanel
             onSessionStart={handleSessionStart}
             onSessionStop={handleSessionStop}
-            collaborationStatus={collaboration.status}
+            collaborationStatus={
+              collaboration.status
+                ? {
+                    ...collaboration.status,
+                    connectedUsers: collaboration.connectedUsers,
+                  }
+                : null
+            }
           />
         </div>
       </div>

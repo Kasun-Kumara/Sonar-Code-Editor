@@ -1,4 +1,4 @@
-import { exec, execSync } from 'child_process';
+import { execSync } from 'child_process';
 import WebSocket, { WebSocketServer } from 'ws';
 import * as http from 'http';
 import * as os from 'os';
@@ -21,10 +21,18 @@ export interface CollaborationStatus {
   networkName?: string;
 }
 
+// Store connections by room
+interface Room {
+  name: string;
+  clients: Set<WebSocket>;
+}
+
 class CollaborationManager {
   private wss: WebSocketServer | null = null;
   private httpServer: http.Server | null = null;
   private mainWindow: BrowserWindow | null = null;
+  private rooms: Map<string, Room> = new Map();
+  private clientRooms: Map<WebSocket, string> = new Map();
   private status: CollaborationStatus = {
     isActive: false,
     mode: null,
@@ -119,6 +127,7 @@ class CollaborationManager {
 
   /**
    * Start the WebSocket collaboration server (Host mode)
+   * Implements y-websocket compatible protocol
    */
   async startHost(userName: string): Promise<CollaborationStatus> {
     if (this.status.isActive) {
@@ -130,59 +139,56 @@ class CollaborationManager {
         // Create HTTP server for the WebSocket to attach to
         this.httpServer = http.createServer();
         
-        // Create WebSocket server
+        // Create WebSocket server - y-websocket expects room name in URL path
         this.wss = new WebSocketServer({ server: this.httpServer });
         
-        const connectedClients = new Map<WebSocket, CollaborationUser>();
-
-        this.wss.on('connection', (ws: WebSocket) => {
-          console.log('New collaboration client connected');
+        this.wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+          // Extract room name from URL path (e.g., /monaco-collab)
+          const roomName = req.url?.slice(1) || 'default';
+          console.log(`New collaboration client connected to room: ${roomName}`);
           
-          ws.on('message', (data: Buffer) => {
-            try {
-              const message = JSON.parse(data.toString());
-              
-              // Handle user registration
-              if (message.type === 'register') {
-                const user: CollaborationUser = {
-                  id: message.userId,
-                  name: message.userName,
-                  color: message.color,
-                };
-                connectedClients.set(ws, user);
-                this.status.connectedUsers = Array.from(connectedClients.values());
-                
-                // Notify all clients about the updated user list
-                this.broadcastUserList();
-                this.notifyStatusChange();
-              }
-              
-              // Broadcast Yjs sync messages to all other clients
-              if (message.type === 'yjs-sync') {
-                this.wss?.clients.forEach((client) => {
-                  if (client !== ws && client.readyState === WebSocket.OPEN) {
-                    client.send(data);
-                  }
-                });
-              }
-            } catch (e) {
-              // If not JSON, it's likely a Yjs binary message - broadcast it
-              this.wss?.clients.forEach((client) => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
+          // Get or create room
+          if (!this.rooms.has(roomName)) {
+            this.rooms.set(roomName, { name: roomName, clients: new Set() });
+          }
+          const room = this.rooms.get(roomName)!;
+          room.clients.add(ws);
+          this.clientRooms.set(ws, roomName);
+          
+          console.log(`Room ${roomName} now has ${room.clients.size} client(s)`);
+
+          // Handle messages - just broadcast to all other clients in the same room
+          // y-websocket handles all the sync protocol in binary format
+          ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+            const room = this.rooms.get(this.clientRooms.get(ws) || '');
+            if (!room) return;
+            
+            // Broadcast to all other clients in the room
+            room.clients.forEach((client) => {
+              if (client !== ws && client.readyState === WebSocket.OPEN) {
+                // Send as binary if it was binary, otherwise as string
+                if (isBinary) {
+                  client.send(data, { binary: true });
+                } else {
                   client.send(data);
                 }
-              });
-            }
+              }
+            });
           });
 
           ws.on('close', () => {
-            const user = connectedClients.get(ws);
-            if (user) {
-              console.log(`User ${user.name} disconnected`);
-              connectedClients.delete(ws);
-              this.status.connectedUsers = Array.from(connectedClients.values());
-              this.broadcastUserList();
-              this.notifyStatusChange();
+            console.log('Client disconnected from collaboration');
+            const roomName = this.clientRooms.get(ws);
+            if (roomName) {
+              const room = this.rooms.get(roomName);
+              if (room) {
+                room.clients.delete(ws);
+                console.log(`Room ${roomName} now has ${room.clients.size} client(s)`);
+                if (room.clients.size === 0) {
+                  this.rooms.delete(roomName);
+                }
+              }
+              this.clientRooms.delete(ws);
             }
           });
 
@@ -199,11 +205,7 @@ class CollaborationManager {
             mode: 'host',
             hostIp: localIp,
             port: COLLAB_PORT,
-            connectedUsers: [{
-              id: 'host',
-              name: userName,
-              color: '#ffb61e',
-            }],
+            connectedUsers: [], // Users tracked via Yjs awareness in renderer
             networkName: this.status.networkName,
           };
           
@@ -218,22 +220,6 @@ class CollaborationManager {
 
       } catch (error) {
         reject(error);
-      }
-    });
-  }
-
-  /**
-   * Broadcast the current user list to all connected clients
-   */
-  private broadcastUserList(): void {
-    const message = JSON.stringify({
-      type: 'user-list',
-      users: this.status.connectedUsers,
-    });
-    
-    this.wss?.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
       }
     });
   }
@@ -259,6 +245,10 @@ class CollaborationManager {
       this.wss.close();
       this.wss = null;
     }
+
+    // Clear rooms
+    this.rooms.clear();
+    this.clientRooms.clear();
 
     // Close HTTP server
     if (this.httpServer) {

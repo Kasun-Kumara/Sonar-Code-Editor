@@ -137,6 +137,7 @@ export default function EditorPanel({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const boundFileRef = useRef<string | null>(null);
+  const modelChangeDisposerRef = useRef<{ dispose: () => void } | null>(null);
 
   // Bind editor to collaboration when collaboration becomes active or file changes
   useEffect(() => {
@@ -148,8 +149,16 @@ export default function EditorPanel({
     ) {
       // Only bind if the file has changed or wasn't bound before
       if (boundFileRef.current !== activeTabPath) {
-        onEditorMount?.(editorRef.current, activeTabPath);
-        boundFileRef.current = activeTabPath;
+        // Wait for model to be ready with a small delay
+        const timeoutId = setTimeout(() => {
+          const model = editorRef.current?.getModel();
+          if (model && model.getValue().length >= 0) {
+            console.log(`Binding collaboration for file: ${activeTabPath}`);
+            onEditorMount?.(editorRef.current!, activeTabPath);
+            boundFileRef.current = activeTabPath;
+          }
+        }, 100);
+        return () => clearTimeout(timeoutId);
       }
     }
   }, [collaborationActive, activeTabPath, onEditorMount]);
@@ -168,20 +177,28 @@ export default function EditorPanel({
       if (boundFileRef.current) {
         onEditorUnmount?.();
       }
+      if (modelChangeDisposerRef.current) {
+        modelChangeDisposerRef.current.dispose();
+      }
     };
   }, [onEditorUnmount]);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
 
-    // Bind to collaboration if active
+    // Bind to collaboration if active (with slight delay for model to be ready)
     if (
       collaborationActive &&
       activeTabPath &&
       activeTabPath !== "__preview__"
     ) {
-      onEditorMount?.(editor, activeTabPath);
-      boundFileRef.current = activeTabPath;
+      setTimeout(() => {
+        if (boundFileRef.current !== activeTabPath) {
+          console.log(`Initial binding for file: ${activeTabPath}`);
+          onEditorMount?.(editor, activeTabPath);
+          boundFileRef.current = activeTabPath;
+        }
+      }, 50);
     }
 
     // Enable auto-closing HTML tags via linked editing
