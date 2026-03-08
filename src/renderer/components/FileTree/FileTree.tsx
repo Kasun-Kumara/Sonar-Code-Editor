@@ -1,5 +1,36 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+
+// Global undo stack for file tree operations
+export const fileUndoStack: Array<{ 
+  originalPath: string; 
+  trashPath: string; 
+  type: "file" | "directory"; 
+  onRestored: () => void; 
+}> = [];
+
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", async (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      const activeEl = document.activeElement;
+      if (activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA" || activeEl?.closest('.monaco-editor')) {
+         return; 
+      }
+      
+      const lastOp = fileUndoStack.pop();
+      if (lastOp) {
+        try {
+          await window.electronAPI.fs.renameItem(lastOp.trashPath, lastOp.originalPath);
+          lastOp.onRestored();
+        } catch (err) {
+          console.error("Failed to restore item:", err);
+          fileUndoStack.push(lastOp); // put it back if failed
+        }
+      }
+    }
+  });
+}
+
 import {
   ChevronRight,
   ChevronDown,
@@ -355,19 +386,40 @@ function FileTreeNode({
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeleteMenuClick = async () => {
     closeContextMenu();
-    if (confirm(`Delete "${node.name}"?`)) {
-      // After the synchronous confirm() dialog closes, Monaco may reclaim
-      // keyboard focus.  Force-blur whatever has focus so Monaco releases its
-      // internal keyboard capture; this prevents the "stuck input" bug when the
-      // user subsequently renames/creates a file.
+
+    try {
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
-      await window.electronAPI.fs.deleteItem(node.path);
+
+      // Perform pseudo-delete by renaming to a hidden .trash file
+      const dirStr = node.path.substring(0, Math.max(node.path.lastIndexOf('/'), node.path.lastIndexOf('\\')));
+      const fileName = node.path.substring(Math.max(node.path.lastIndexOf('/'), node.path.lastIndexOf('\\')) + 1);
+      const trashPath = `${dirStr}/.trash_${Date.now()}_${fileName}`;
+      
+      await window.electronAPI.fs.renameItem(node.path, trashPath);
+      
+      // Store in global undo stack so Ctrl+Z brings it back
+      fileUndoStack.push({
+        originalPath: node.path,
+        trashPath,
+        type: node.type,
+        onRestored: () => {
+            if (node.type === "file") {
+               onFileCreated?.(node.path, node.name);
+            } else {
+               onFolderCreated?.(node.path);
+            }
+            onRefresh();
+        }
+      });
+      
       onFileDeleted(node.path, node.type);
       onRefresh();
+    } catch (err) {
+      console.error("Failed to delete item:", err);
     }
   };
 
@@ -558,13 +610,13 @@ function FileTreeNode({
               <span style={{ color: "var(--text-muted)" }}>F2</span>
             </div>
             <div className="context-menu-separator" />
-            <div className="context-menu-item danger" onClick={handleDelete}>
-              <span>Delete</span>
-              <span style={{ color: "var(--text-muted)" }}>Del</span>
-            </div>
-          </div>,
-          document.body,
-        )}
+              <div className="context-menu-item danger" onClick={handleDeleteMenuClick}>
+                <span>Delete</span>
+                <span style={{ color: "var(--text-muted)" }}>Del</span>
+              </div>
+            </div>,
+            document.body,
+          )}
 
       {expanded && node.type === "directory" && (
         <div className="tree-children">
