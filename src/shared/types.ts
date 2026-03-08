@@ -160,8 +160,8 @@ export interface ElectronAPI {
     readText: () => Promise<string>;
   };
   collaboration: {
-    startHost: (userName: string) => Promise<CollaborationStatus>;
-    joinSession: (hostIp: string, userName: string) => Promise<CollaborationStatus>;
+    startHost: (userName: string, teamId?: string) => Promise<CollaborationStatus>;
+    joinSession: (hostIp: string, userName: string, teamId?: string) => Promise<CollaborationStatus>;
     stopSession: () => Promise<void>;
     getStatus: () => Promise<CollaborationStatus>;
     getLocalIp: () => Promise<string>;

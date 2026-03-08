@@ -55,8 +55,8 @@ const api: ElectronAPI = {
     readText: () => ipcRenderer.invoke(IPC_CHANNELS.CLIPBOARD_READ_TEXT),
   },
   collaboration: {
-    startHost: (userName: string) => ipcRenderer.invoke(IPC_CHANNELS.COLLAB_START_HOST, userName),
-    joinSession: (hostIp: string, userName: string) => ipcRenderer.invoke(IPC_CHANNELS.COLLAB_JOIN_SESSION, hostIp, userName),
+    startHost: (userName: string, teamId?: string) => ipcRenderer.invoke(IPC_CHANNELS.COLLAB_START_HOST, userName, teamId),
+    joinSession: (hostIp: string, userName: string, teamId?: string) => ipcRenderer.invoke(IPC_CHANNELS.COLLAB_JOIN_SESSION, hostIp, userName, teamId),
     stopSession: () => ipcRenderer.invoke(IPC_CHANNELS.COLLAB_STOP_SESSION),
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.COLLAB_GET_STATUS),
     getLocalIp: () => ipcRenderer.invoke(IPC_CHANNELS.COLLAB_GET_LOCAL_IP),

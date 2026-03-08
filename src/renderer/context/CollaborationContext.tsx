@@ -12,6 +12,7 @@ import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
 import type { editor } from "monaco-editor";
 import { CollaborationStatus, CollaborationUser } from "../../shared/types";
+import { useAuth } from "./AuthContext";
 
 // Shared file metadata
 export interface SharedFile {
@@ -111,6 +112,7 @@ interface CollaborationProviderProps {
 export function CollaborationProvider({
   children,
 }: CollaborationProviderProps) {
+  const { user } = useAuth();
   const [status, setStatus] = useState<CollaborationStatus | null>(null);
   const [connectedUsers, setConnectedUsers] = useState<CollaborationUser[]>([]);
   const [userName, setUserName] = useState(() => {
@@ -256,7 +258,8 @@ export function CollaborationProvider({
       const wsUrl = `ws://${hostIp}:${port}`;
       console.log("Connecting to WebSocket server:", wsUrl);
 
-      const provider = new WebsocketProvider(wsUrl, "monaco-collab", ydoc, {
+      const roomName = `monaco-collab-${user?.teamId || 'default'}`;
+      const provider = new WebsocketProvider(wsUrl, roomName, ydoc, {
         connect: true,
       });
       providerRef.current = provider;
@@ -508,7 +511,7 @@ export function CollaborationProvider({
 
       return { ydoc, provider };
     },
-    [cleanup, userName],
+    [cleanup, userName, user?.teamId],
   );
 
   const startHost = useCallback(async () => {
@@ -518,7 +521,7 @@ export function CollaborationProvider({
 
     try {
       const newStatus =
-        await window.electronAPI.collaboration.startHost(userName);
+        await window.electronAPI.collaboration.startHost(userName, user?.teamId);
 
       if (newStatus.hostIp) {
         // Host connects to localhost since the server is on their own machine
@@ -531,7 +534,7 @@ export function CollaborationProvider({
       console.error("Failed to start host:", error);
       throw error;
     }
-  }, [initializeYjs, userName]);
+  }, [initializeYjs, userName, user?.teamId]);
 
   const joinSession = useCallback(
     async (hostIp: string) => {
@@ -546,6 +549,7 @@ export function CollaborationProvider({
         const newStatus = await window.electronAPI.collaboration.joinSession(
           hostIp,
           userName,
+          user?.teamId
         );
 
         // Initialize Yjs connection to remote host
@@ -557,7 +561,7 @@ export function CollaborationProvider({
         throw error;
       }
     },
-    [initializeYjs, userName],
+    [initializeYjs, userName, user?.teamId],
   );
 
   const stopSession = useCallback(async () => {

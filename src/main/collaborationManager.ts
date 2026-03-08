@@ -250,10 +250,23 @@ class CollaborationManager {
    * Start the WebSocket collaboration server (Host mode)
    * Implements y-websocket compatible protocol
    */
-  async startHost(userName: string): Promise<CollaborationStatus> {
+  async startHost(userName: string, teamId: string = 'default'): Promise<CollaborationStatus> {
     if (this.status.isActive) {
       throw new Error('Collaboration session already active');
     }
+
+    // We'll use teamId to validate requests
+    this.status = {
+      isActive: true,
+      mode: 'host',
+      hostIp: this.getLocalIpAddress(),
+      port: COLLAB_PORT,
+      connectedUsers: [{
+        id: 'self',
+        name: userName,
+        color: this.generateUserColor(),
+      }],
+    };
 
     return new Promise((resolve, reject) => {
       try {
@@ -264,8 +277,15 @@ class CollaborationManager {
         this.wss = new WebSocketServer({ server: this.httpServer });
         
         this.wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
-          // Extract room name from URL path (e.g., /monaco-collab)
+          // Extract room name from URL path (e.g., /monaco-collab-team123)
           const roomName = req.url?.slice(1) || 'default';
+          
+          // Reject if not part of the same team
+          if (!roomName.endsWith(`-${teamId}`)) {
+            console.log(`Rejecting connection from different team. URL: ${req.url}`);
+            ws.close(1008, "Team mismatch");
+            return;
+          }
           console.log(`New collaboration client connected to room: ${roomName}`);
           
           // Get or create room
@@ -449,7 +469,7 @@ class CollaborationManager {
    * Note: The actual Yjs WebSocket connection is handled in the renderer
    * This just updates the local status
    */
-  joinAsClient(hostIp: string, userName: string): CollaborationStatus {
+  joinAsClient(hostIp: string, userName: string, teamId: string = 'default'): CollaborationStatus {
     this.status = {
       isActive: true,
       mode: 'client',
