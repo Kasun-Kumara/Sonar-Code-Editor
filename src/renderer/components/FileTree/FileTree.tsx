@@ -120,7 +120,13 @@ function InlineCreateInput({
           clearTimeout(blurTimeoutRef.current);
           blurTimeoutRef.current = null;
         }
-        inputRef.current.focus();
+        // Use timeout to prevent React maximum call stack size exceeded correctly
+        // by breaking the synchronous event loop from capture phase
+        setTimeout(() => {
+          if (!submittedRef.current && inputRef.current) {
+             inputRef.current.focus();
+          }
+        }, 0);
       }
     };
 
@@ -270,6 +276,7 @@ function FileTreeNode({
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(node.name);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const renameBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasChildFolders = children.some((c) => c.type === "directory");
 
@@ -397,6 +404,48 @@ function FileTreeNode({
     }
   };
 
+  const handleRenameBlur = useCallback(() => {
+    if (renameBlurTimeoutRef.current) clearTimeout(renameBlurTimeoutRef.current);
+    renameBlurTimeoutRef.current = setTimeout(() => {
+      // Focus came back (or intercepted) — do nothing.
+      if (document.activeElement === renameInputRef.current) return;
+      commitRename();
+    }, 300);
+  }, [newName, node.name, node.path]);
+
+  useEffect(() => {
+    if (!renaming) return;
+
+    const handleFocusCapture = (e: FocusEvent) => {
+      if (!renameInputRef.current) return;
+      if (e.target === renameInputRef.current) return;
+
+      const target = e.target as Element | null;
+      const isMonacoOrBody =
+        !target ||
+        target === document.body ||
+        target.closest('.monaco-editor') !== null;
+
+      if (isMonacoOrBody) {
+        if (renameBlurTimeoutRef.current) {
+          clearTimeout(renameBlurTimeoutRef.current);
+          renameBlurTimeoutRef.current = null;
+        }
+        setTimeout(() => {
+          if (renameInputRef.current) {
+            renameInputRef.current.focus();
+          }
+        }, 0);
+      }
+    };
+
+    document.addEventListener('focus', handleFocusCapture, true);
+    return () => {
+      document.removeEventListener('focus', handleFocusCapture, true);
+      if (renameBlurTimeoutRef.current) clearTimeout(renameBlurTimeoutRef.current);
+    };
+  }, [renaming]);
+
   useEffect(() => {
     if (contextMenu) {
       const handler = (e: Event) => {
@@ -461,11 +510,29 @@ function FileTreeNode({
             className="rename-input"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            onFocus={(e) => e.target.select()}
-            onBlur={commitRename}
+            onFocus={(e) => {
+              if (renameBlurTimeoutRef.current) {
+                clearTimeout(renameBlurTimeoutRef.current);
+                renameBlurTimeoutRef.current = null;
+              }
+              e.target.select();
+            }}
+            onBlur={handleRenameBlur}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commitRename();
-              if (e.key === "Escape") setRenaming(false);
+              if (e.key === "Enter") {
+                if (renameBlurTimeoutRef.current) {
+                  clearTimeout(renameBlurTimeoutRef.current);
+                  renameBlurTimeoutRef.current = null;
+                }
+                commitRename();
+              }
+              if (e.key === "Escape") {
+                if (renameBlurTimeoutRef.current) {
+                  clearTimeout(renameBlurTimeoutRef.current);
+                  renameBlurTimeoutRef.current = null;
+                }
+                setRenaming(false);
+              }
             }}
             onClick={(e) => e.stopPropagation()}
           />
