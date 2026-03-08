@@ -267,8 +267,8 @@ export function CollaborationProvider({
       providerRef.current = provider;
 
       // Detect team-mismatch rejection from host
-      provider.on('connection-close', (event: CloseEvent) => {
-        if (event.code === 1008 && event.reason === 'Team mismatch') {
+      provider.on('connection-close', (event: CloseEvent | null) => {
+        if (event && event.code === 1008 && event.reason === 'Team mismatch') {
           console.error('Connection rejected: different team');
           provider.disconnect();
           cleanup();
