@@ -1,4 +1,9 @@
-// Monaco Editor local setup — MUST be imported before any Monaco component renders.
+// Worker patch — MUST be the very first import.
+// Patches the Worker constructor to suppress uncaught Worker errors that freeze
+// the UI, and sets MonacoEnvironment.getWorker before monaco-editor loads.
+import './monacoWorkerPatch';
+
+// Monaco Editor local setup — must be imported before any Monaco component renders.
 // This configures @monaco-editor/react to use the bundled monaco-editor instead
 // of loading from CDN, which fixes the "stuck on Loading..." issue on Windows
 // clients without internet access or with restrictive CSP.
