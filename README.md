@@ -1,4 +1,4 @@
-# Exam-IDE
+# Sonar Code-Editor
 
 ## Features
 
