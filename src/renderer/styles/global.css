@@ -1,28 +1,29 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  /* Modern sleek dark theme based on Vercel/Linear aesthetics */
-  --bg-primary: #09090b;
-  --bg-secondary: #121214;
-  --bg-tertiary: #18181b;
-  --bg-hover: #27272a;
-  --bg-active: #27272a;
+  /* Sonar IDE Phantom Theme */
+  --bg-primary: #0c0e13; /* Near-Black Charcoal */
+  --bg-secondary: #111318;
+  --bg-tertiary: #161a22;
+  --bg-hover: #1c2230;
+  --bg-active: #1c2230;
   
-  --border: #27272a;
-  --border-focus: #3f3f46;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-focus: rgba(59, 130, 246, 0.35); /* blue glow on focus */
   
-  --text-primary: #f4f4f5;
-  --text-secondary: #a1a1aa;
-  --text-muted: #52525b;
+  --text-primary: #f8fafc;
+  --text-secondary: #8892a0;
+  --text-muted: #4f5a6a;
   
-  --accent: #3b82f6;
+  --accent: #3b82f6; /* vivid blue */
   --accent-hover: #2563eb;
-  --accent-transparent: rgba(59, 130, 246, 0.15);
+  --accent-secondary: #38bdf8; /* sky-400 gradient partner */
+  --accent-transparent: rgba(59, 130, 246, 0.12);
   
   --success: #10b981;
   --danger: #ef4444;
   --warning: #f59e0b;
-  --info: #6366f1;
+  --info: #38bdf8; /* sky-400 */
   
   --online: #10b981;
   --offline: #ef4444;
@@ -30,32 +31,33 @@
 }
 
 [data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f3f4f6;
-  --bg-tertiary: #e5e7eb;
-  --bg-hover: #e5e7eb;
-  --bg-active: #d1d5db;
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-tertiary: #e2e8f0;
+  --bg-hover: #dbeafe; /* blue-100 tint on hover */
+  --bg-active: #bfdbfe; /* blue-200 */
 
-  --border: #e5e7eb;
-  --border-focus: #d1d5db;
+  --border: #e2e8f0;
+  --border-focus: #3b82f6;
 
-  --text-primary: #111827;
-  --text-secondary: #4b5563;
+  --text-primary: #0c0e13;
+  --text-secondary: #374151;
   --text-muted: #6b7280;
 
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --accent-transparent: rgba(59, 130, 246, 0.15);
+  --accent: #2563eb; /* blue-600 */
+  --accent-hover: #1d4ed8; /* blue-700 */
+  --accent-secondary: #38bdf8;
+  --accent-transparent: #dbeafe; /* blue-100 */
 
   --menu-bg: #ffffff;
-  --menu-border: #d1d5db;
-  --menu-hover: #0060c0;
-  --menu-text: #333333;
+  --menu-border: #e2e8f0;
+  --menu-hover: #1d4ed8;
+  --menu-text: #0c0e13;
 
   --success: #059669;
   --danger: #dc2626;
   --warning: #d97706;
-  --info: #4f46e5;
+  --info: #38bdf8;
   
   --online: #059669;
   --offline: #dc2626;

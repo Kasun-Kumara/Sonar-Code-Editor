@@ -95,14 +95,14 @@ const CollaborationContext = createContext<CollaborationContextValue | null>(
 // Generate a random color for the user
 function generateUserColor(): string {
   const colors = [
-    "#3b82f6",
-    "#10b981",
-    "#f59e0b",
-    "#ef4444",
-    "#8b5cf6",
-    "#ec4899",
-    "#06b6d4",
-    "#84cc16",
+    "#3b82f6", // Vivid Blue
+    "#38bdf8", // Sky Blue
+    "#8b5cf6", // Purple
+    "#ec4899", // Pink
+    "#f59e0b", // Amber
+    "#ef4444", // Red
+    "#10b981", // Emerald
+    "#84cc16", // Lime
   ];
   return colors[Math.floor(Math.random() * colors.length)];
 }

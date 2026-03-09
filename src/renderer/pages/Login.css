@@ -1,4 +1,4 @@
-﻿.login-layout {
+.login-layout {
   display: flex;
   width: 100vw;
   height: 100vh;
@@ -41,11 +41,9 @@
 }
 
 .hero-icon {
-  font-size: 80px;
-  margin-bottom: 24px;
-  display: inline-block;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899);
+  background: linear-gradient(135deg, #3b82f6, #38bdf8, #818cf8);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -69,7 +67,7 @@
   position: absolute;
   width: 1400px;
   height: 1400px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.05) 0%, var(--accent-transparent) 20%, transparent 65%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.04) 0%, rgba(59, 130, 246, 0.15) 20%, rgba(56, 189, 248, 0.05) 45%, transparent 65%);
   top: 40%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -78,7 +76,7 @@
 }
 
 [data-theme="light"] .hero-decoration {
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, rgba(59, 130, 246, 0.15) 30%, transparent 65%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.5) 0%, rgba(59, 130, 246, 0.08) 30%, transparent 65%);
 }
 
 /* Right Panel Section */
@@ -120,8 +118,9 @@
 @media (max-width: 900px) {
   .login-logo-mobile {
     display: inline-block;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    background: linear-gradient(135deg, #3b82f6, #38bdf8);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
   }
 }

@@ -89,7 +89,7 @@ function getIcon(node: FileNode) {
       return <FileImage size={14} color="#8b5cf6" />;
     case "sh":
     case "bash":
-      return <Terminal size={14} color="#10b981" />;
+      return <Terminal size={14} color="#3b82f6" />;
     case "php":
       return <FileCode2 size={14} color="#7b7fb5" />;
     case "sql":

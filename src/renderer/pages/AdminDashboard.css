@@ -8,8 +8,8 @@
   height: 100vh;
   background: var(--bg-primary);
   background-image: 
-    radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.03), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.03), transparent 25%);
+    radial-gradient(circle at 15% 50%, rgba(16, 185, 129, 0.03), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(20, 184, 166, 0.03), transparent 25%);
   overflow: hidden;
   color: var(--text-primary);
   font-family: inherit;
@@ -150,7 +150,7 @@
 .stat-icon.neutral { color: var(--text-muted); background: rgba(255,255,255,0.03); }
 .stat-icon.online { color: var(--online); background: rgba(16, 185, 129, 0.1); }
 .stat-icon.offline { color: #f87171; background: rgba(239, 68, 68, 0.1); }
-.stat-icon.accent { color: var(--accent); background: rgba(59, 130, 246, 0.1); }
+.stat-icon.accent { color: var(--accent); background: rgba(16, 185, 129, 0.1); }
 
 .stat-label { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
 
