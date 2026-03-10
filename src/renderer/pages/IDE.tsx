@@ -181,10 +181,12 @@ function IDEContent() {
   // FileTree re-renders and can steal input focus on Windows/Electron).
   const collabActiveRef = useRef(collaboration.isActive);
   const broadcastFileOpRef = useRef(collaboration.broadcastFileOp);
+  const clearYTextRef = useRef(collaboration.clearYText);
   useEffect(() => {
     collabActiveRef.current = collaboration.isActive;
     broadcastFileOpRef.current = collaboration.broadcastFileOp;
-  }, [collaboration.isActive, collaboration.broadcastFileOp]);
+    clearYTextRef.current = collaboration.clearYText;
+  }, [collaboration.isActive, collaboration.broadcastFileOp, collaboration.clearYText]);
 
   useEffect(() => {
     // Add platform class to body for OS-specific styling
@@ -719,6 +721,16 @@ function IDEContent() {
         return next;
       });
 
+      // Clear the Y.Text content so re-created files with the same name start fresh
+      try {
+        const wsRoot = workspaceRootRef.current;
+        if (collabActiveRef.current) {
+          clearYTextRef.current(deletedPath, wsRoot);
+        }
+      } catch (err) {
+        console.error('clearYText on delete failed:', err);
+      }
+
       // Broadcast delete to collaboration peers
       try {
         const wsRoot = workspaceRootRef.current;
@@ -918,6 +930,12 @@ function IDEContent() {
                 });
                 return next;
               });
+              // Clear the Y.Text content so re-created files start fresh
+              try {
+                clearYTextRef.current(fullPath, wsRoot);
+              } catch (clearErr) {
+                console.error('clearYText on remote delete failed:', clearErr);
+              }
               break;
             case "rename": {
               const newRelPath = sanitizeRelPath(op.newRelativePath || "");

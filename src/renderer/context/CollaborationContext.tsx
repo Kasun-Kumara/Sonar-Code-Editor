@@ -84,6 +84,8 @@ interface CollaborationContextValue {
   // File operation sync
   broadcastFileOp: (op: Omit<FileOperation, "timestamp" | "clientId">) => void;
   onFileOperation: (callback: (op: FileOperation) => void) => () => void;
+  // Clear Y.Text content for a deleted file so re-created files start fresh
+  clearYText: (filePath: string, workspaceRoot?: string | null) => void;
   connectionError: string | null;
   clearConnectionError: () => void;
 }
@@ -714,6 +716,38 @@ export function CollaborationProvider({
     currentEditorRef.current = null;
   }, [safeDestroyBinding]);
 
+  // Clear Y.Text content for a given file path so that re-created files
+  // with the same name start with empty content instead of stale data.
+  const clearYText = useCallback(
+    (filePath: string, workspaceRoot?: string | null) => {
+      if (!ydocRef.current) return;
+
+      // Derive the docName using the same logic as bindEditor
+      let relativePath = filePath;
+      if (workspaceRoot) {
+        const normalizedFile = filePath.replace(/\\/g, "/");
+        const normalizedRoot = workspaceRoot.replace(/\\/g, "/");
+        if (normalizedFile.startsWith(normalizedRoot)) {
+          relativePath = normalizedFile.substring(normalizedRoot.length);
+          if (relativePath.startsWith("/")) {
+            relativePath = relativePath.substring(1);
+          }
+        }
+      }
+
+      const docName = relativePath.replace(/[^a-zA-Z0-9]/g, "_");
+      const ytext = ydocRef.current.getText(docName);
+
+      if (ytext.length > 0) {
+        ydocRef.current.transact(() => {
+          ytext.delete(0, ytext.length);
+        });
+        console.log(`Cleared Y.Text for deleted file: ${docName}`);
+      }
+    },
+    [],
+  );
+
   // Get current editor content (for saving during collaboration)
   const getCurrentEditorContent = useCallback((): string | null => {
     if (!currentEditorRef.current) return null;
@@ -941,6 +975,7 @@ export function CollaborationProvider({
       // File operation sync
       broadcastFileOp,
       onFileOperation,
+      clearYText,
       connectionError,
       clearConnectionError: () => setConnectionError(null),
     }),
@@ -970,6 +1005,7 @@ export function CollaborationProvider({
       onWorkspaceMetadataChange,
       broadcastFileOp,
       onFileOperation,
+      clearYText,
       connectionError,
     ],
   );
