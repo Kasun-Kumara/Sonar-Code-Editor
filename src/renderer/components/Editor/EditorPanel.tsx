@@ -146,6 +146,10 @@ const EditorPanel = React.memo(function EditorPanel({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const boundFileRef = useRef<string | null>(null);
   const modelChangeDisposerRef = useRef<{ dispose: () => void } | null>(null);
+  // Ref so the auto-close handler inside handleEditorMount can read the
+  // latest collaboration state without needing to re-register listeners.
+  const collaborationActiveRef = useRef(collaborationActive);
+  collaborationActiveRef.current = collaborationActive;
   // Counter incremented when the Monaco editor mounts, so the binding
   // useEffect re-evaluates even though editorRef is not reactive.
   const [editorMountTick, setEditorMountTick] = useState(0);
@@ -222,6 +226,21 @@ const EditorPanel = React.memo(function EditorPanel({
         if (change.text === ">") {
           const position = editor.getPosition();
           if (!position) return;
+
+          // During collaboration, skip auto-close for remote changes.
+          // Remote edits applied by y-monaco land at arbitrary positions;
+          // the local cursor will NOT be right after the inserted ">".
+          if (collaborationActiveRef.current) {
+            const changeEndLine = change.range.endLineNumber;
+            const changeEndCol = change.range.endColumn + 1; // position after the ">"
+            if (
+              position.lineNumber !== changeEndLine ||
+              position.column !== changeEndCol
+            ) {
+              return; // Remote change — don't auto-close
+            }
+          }
+
           const lineContent = model.getLineContent(position.lineNumber);
           const beforeCursor = lineContent.substring(0, position.column - 1);
 
