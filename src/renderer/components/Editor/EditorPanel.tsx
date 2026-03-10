@@ -227,18 +227,13 @@ const EditorPanel = React.memo(function EditorPanel({
           const position = editor.getPosition();
           if (!position) return;
 
-          // During collaboration, skip auto-close for remote changes.
-          // Remote edits applied by y-monaco land at arbitrary positions;
-          // the local cursor will NOT be right after the inserted ">".
-          if (collaborationActiveRef.current) {
-            const changeEndLine = change.range.endLineNumber;
-            const changeEndCol = change.range.endColumn + 1; // position after the ">"
-            if (
-              position.lineNumber !== changeEndLine ||
-              position.column !== changeEndCol
-            ) {
-              return; // Remote change — don't auto-close
-            }
+          // During collaboration, y-monaco applies remote edits via
+          // monacoModel.applyEdits() which also fires onDidChangeModelContent.
+          // Our wrapper in CollaborationContext sets __isRemoteEdit on the
+          // model during these operations.  Skip auto-close to avoid
+          // inserting duplicate closing tags on the receiving side.
+          if ((model as any).__isRemoteEdit) {
+            return;
           }
 
           const lineContent = model.getLineContent(position.lineNumber);

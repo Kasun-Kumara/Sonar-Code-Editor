@@ -681,6 +681,25 @@ export function CollaborationProvider({
         providerRef.current.awareness,
       );
 
+      // Wrap y-monaco's _ytextObserver so that a __isRemoteEdit flag is set
+      // on the Monaco model while remote edits are being applied.  The
+      // auto-close-tag handler in EditorPanel checks this flag to avoid
+      // inserting duplicate closing tags when a remote user types ">".
+      const originalYtextObserver = (binding as any)._ytextObserver;
+      if (typeof originalYtextObserver === "function") {
+        ytext.unobserve(originalYtextObserver);
+        const wrappedObserver = (event: any) => {
+          (model as any).__isRemoteEdit = true;
+          try {
+            originalYtextObserver(event);
+          } finally {
+            (model as any).__isRemoteEdit = false;
+          }
+        };
+        (binding as any)._ytextObserver = wrappedObserver;
+        ytext.observe(wrappedObserver);
+      }
+
       // Monkey-patch destroy() to be idempotent.  y-monaco registers an
       // internal `monacoModel.onWillDispose(() => this.destroy())` callback
       // that fires when React unmounts the <MonacoEditor> (key change on
