@@ -6,7 +6,7 @@ export const fileUndoStack: Array<{
   originalPath: string;
   trashPath: string;
   type: "file" | "directory";
-  onRestored: () => void | Promise<void>;
+  onRestored: () => void;
 }> = [];
 
 if (typeof window !== "undefined") {
@@ -21,7 +21,7 @@ if (typeof window !== "undefined") {
       if (lastOp) {
         try {
           await window.electronAPI.fs.renameItem(lastOp.trashPath, lastOp.originalPath);
-          await lastOp.onRestored();
+          lastOp.onRestored();
         } catch (err) {
           console.error("Failed to restore item:", err);
           fileUndoStack.push(lastOp); // put it back if failed
@@ -265,7 +265,7 @@ interface FileTreeNodeProps {
   onFileOpened: (path: string, name: string) => void;
   onFileDeleted: (path: string, type: "file" | "directory") => void;
   onFileRenamed?: (oldPath: string, newPath: string) => void;
-  onFileCreated?: (path: string, name: string, content?: string) => void;
+  onFileCreated?: (path: string, name: string) => void;
   onFolderCreated?: (path: string) => void;
 }
 
@@ -406,14 +406,9 @@ function FileTreeNode({
         originalPath: node.path,
         trashPath,
         type: node.type,
-        onRestored: async () => {
+        onRestored: () => {
           if (node.type === "file") {
-            try {
-              const content = await window.electronAPI.fs.readFile(node.path);
-              onFileCreated?.(node.path, node.name, content);
-            } catch (e) {
-              onFileCreated?.(node.path, node.name);
-            }
+            onFileCreated?.(node.path, node.name);
           } else {
             onFolderCreated?.(node.path);
           }
@@ -725,7 +720,7 @@ interface FileTreeProps {
   newFileTrigger?: number;
   onFileDeleted?: (path: string, type: "file" | "directory") => void;
   onFileRenamed?: (oldPath: string, newPath: string) => void;
-  onFileCreated?: (path: string, name: string, content?: string) => void;
+  onFileCreated?: (path: string, name: string) => void;
   onFolderCreated?: (path: string) => void;
   refreshTrigger?: number;
 }

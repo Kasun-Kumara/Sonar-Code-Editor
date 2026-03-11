@@ -182,13 +182,11 @@ function IDEContent() {
   const collabActiveRef = useRef(collaboration.isActive);
   const broadcastFileOpRef = useRef(collaboration.broadcastFileOp);
   const clearYTextRef = useRef(collaboration.clearYText);
-  const restoreYTextRef = useRef(collaboration.restoreYText);
   useEffect(() => {
     collabActiveRef.current = collaboration.isActive;
     broadcastFileOpRef.current = collaboration.broadcastFileOp;
     clearYTextRef.current = collaboration.clearYText;
-    restoreYTextRef.current = collaboration.restoreYText;
-  }, [collaboration.isActive, collaboration.broadcastFileOp, collaboration.clearYText, collaboration.restoreYText]);
+  }, [collaboration.isActive, collaboration.broadcastFileOp, collaboration.clearYText]);
 
   useEffect(() => {
     // Add platform class to body for OS-specific styling
@@ -806,7 +804,7 @@ function IDEContent() {
   );
 
   const handleFileCreated = useCallback(
-    (fullPath: string, _name: string, content?: string) => {
+    (fullPath: string, _name: string) => {
       setTabs((prev) =>
         prev.map((t) =>
           t.path === fullPath ? { ...t, isDeleted: false } : t
@@ -816,15 +814,10 @@ function IDEContent() {
         const wsRoot = workspaceRootRef.current;
         if (collabActiveRef.current && wsRoot) {
           const relativePath = toRelativePath(fullPath, wsRoot);
-
-          if (content !== undefined) {
-            restoreYTextRef.current(fullPath, content, wsRoot);
-          }
-
           broadcastFileOpRef.current({
             type: "create-file",
             relativePath,
-            content: content || "",
+            content: "",
           });
         }
       } catch (err) {
@@ -901,9 +894,7 @@ function IDEContent() {
               }
               setTabs((prev) =>
                 prev.map((t) =>
-                  t.path === fullPath
-                    ? { ...t, isDeleted: false, content: op.content || t.content }
-                    : t
+                  t.path === fullPath ? { ...t, isDeleted: false } : t
                 )
               );
               break;
@@ -939,10 +930,12 @@ function IDEContent() {
                 });
                 return next;
               });
-              // We DELIBERATELY DO NOT call clearYTextRef.current here.
-              // The peer that initiated the delete already cleared the Y.Text,
-              // and Yjs will sync that deletion to us naturally. Doing it again
-              // here causes a race condition that can wipe out restored file text.
+              // Clear the Y.Text content so re-created files start fresh
+              try {
+                clearYTextRef.current(fullPath, wsRoot);
+              } catch (clearErr) {
+                console.error('clearYText on remote delete failed:', clearErr);
+              }
               break;
             case "rename": {
               const newRelPath = sanitizeRelPath(op.newRelativePath || "");
