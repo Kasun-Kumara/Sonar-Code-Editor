@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 
 // Global undo stack for file tree operations
-export const fileUndoStack: Array<{ 
-  originalPath: string; 
-  trashPath: string; 
-  type: "file" | "directory"; 
-  onRestored: () => void; 
+export const fileUndoStack: Array<{
+  originalPath: string;
+  trashPath: string;
+  type: "file" | "directory";
+  onRestored: () => void;
 }> = [];
 
 if (typeof window !== "undefined") {
@@ -14,9 +14,9 @@ if (typeof window !== "undefined") {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       const activeEl = document.activeElement;
       if (activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA" || activeEl?.closest('.monaco-editor')) {
-         return; 
+        return;
       }
-      
+
       const lastOp = fileUndoStack.pop();
       if (lastOp) {
         try {
@@ -196,14 +196,14 @@ function InlineCreateInput({
     if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current);
     blurTimeoutRef.current = setTimeout(() => {
       if (document.activeElement === inputRef.current) return;
-      
+
       if (!userClickedAway && (wentToMonaco || wentToBody)) {
         // This was a programmatic focus steal (e.g., y-monaco merging edits).
         // Safely put focus back without aggressive capture loops that crash React.
         inputRef.current?.focus();
-        return; 
+        return;
       }
-      
+
       handleSubmit();
     }, 300);
   }, [handleSubmit]);
@@ -265,7 +265,7 @@ interface FileTreeNodeProps {
   onFileOpened: (path: string, name: string) => void;
   onFileDeleted: (path: string, type: "file" | "directory") => void;
   onFileRenamed?: (oldPath: string, newPath: string) => void;
-  onFileCreated?: (path: string, name: string) => void;
+  onFileCreated?: (path: string, name: string, content?: string) => void;
   onFolderCreated?: (path: string) => void;
 }
 
@@ -382,7 +382,7 @@ function FileTreeNode({
     } catch (err) {
       console.error("Failed to create item:", err);
       // Still refresh to show current state
-      await loadChildren().catch(() => {});
+      await loadChildren().catch(() => { });
     }
   };
 
@@ -398,24 +398,29 @@ function FileTreeNode({
       const dirStr = node.path.substring(0, Math.max(node.path.lastIndexOf('/'), node.path.lastIndexOf('\\')));
       const fileName = node.path.substring(Math.max(node.path.lastIndexOf('/'), node.path.lastIndexOf('\\')) + 1);
       const trashPath = `${dirStr}/.trash_${Date.now()}_${fileName}`;
-      
+
       await window.electronAPI.fs.renameItem(node.path, trashPath);
-      
+
       // Store in global undo stack so Ctrl+Z brings it back
       fileUndoStack.push({
         originalPath: node.path,
         trashPath,
         type: node.type,
-        onRestored: () => {
-            if (node.type === "file") {
-               onFileCreated?.(node.path, node.name);
-            } else {
-               onFolderCreated?.(node.path);
+        onRestored: async () => {
+          if (node.type === "file") {
+            try {
+              const content = await window.electronAPI.fs.readFile(node.path);
+              onFileCreated?.(node.path, node.name, content);
+            } catch (e) {
+              onFileCreated?.(node.path, node.name);
             }
-            onRefresh();
+          } else {
+            onFolderCreated?.(node.path);
+          }
+          onRefresh();
         }
       });
-      
+
       onFileDeleted(node.path, node.type);
       onRefresh();
     } catch (err) {
@@ -435,7 +440,7 @@ function FileTreeNode({
   const commitRename = async () => {
     if (commitRenameRef.current) return;
     commitRenameRef.current = true;
-    
+
     setRenaming(false);
     if (newName !== node.name && newName.trim()) {
       const dir = node.path.split(/[\\/]/).slice(0, -1).join("/");
@@ -464,19 +469,19 @@ function FileTreeNode({
     const relatedTarget = e.relatedTarget as Element | null;
     const wentToMonaco = relatedTarget && !!relatedTarget.closest('.monaco-editor');
     const wentToBody = relatedTarget === document.body || !relatedTarget;
-    
+
     if (renameBlurTimeoutRef.current) clearTimeout(renameBlurTimeoutRef.current);
     renameBlurTimeoutRef.current = setTimeout(() => {
       // Focus came back naturally — do nothing.
       if (document.activeElement === renameInputRef.current) return;
-      
+
       if (!userClickedAway && (wentToMonaco || wentToBody)) {
         // Focus stolen programmatically by Monaco during a collab sync.
         // Prevent premature rename commit, gently restore focus.
         renameInputRef.current?.focus();
         return;
       }
-      
+
       // We only commit if it's an explicit submit (Enter key, or actually clicking away).
       // Double check that it's still renaming to avoid double-commit race condition.
       commitRename();
@@ -629,13 +634,13 @@ function FileTreeNode({
               <span style={{ color: "var(--text-muted)" }}>F2</span>
             </div>
             <div className="context-menu-separator" />
-              <div className="context-menu-item danger" onClick={handleDeleteMenuClick}>
-                <span>Delete</span>
-                <span style={{ color: "var(--text-muted)" }}>Del</span>
-              </div>
-            </div>,
-            document.body,
-          )}
+            <div className="context-menu-item danger" onClick={handleDeleteMenuClick}>
+              <span>Delete</span>
+              <span style={{ color: "var(--text-muted)" }}>Del</span>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {expanded && node.type === "directory" && (
         <div className="tree-children">
@@ -720,7 +725,7 @@ interface FileTreeProps {
   newFileTrigger?: number;
   onFileDeleted?: (path: string, type: "file" | "directory") => void;
   onFileRenamed?: (oldPath: string, newPath: string) => void;
-  onFileCreated?: (path: string, name: string) => void;
+  onFileCreated?: (path: string, name: string, content?: string) => void;
   onFolderCreated?: (path: string) => void;
   refreshTrigger?: number;
 }
@@ -958,8 +963,8 @@ const FileTree = React.memo(function FileTree({
               onSetCreating={handleSetCreating}
               selectedFolder={selectedFolder}
               onSelectFolder={setSelectedFolder}
-              onFileOpened={onFileOpened ?? (() => {})}
-              onFileDeleted={onFileDeleted ?? (() => {})}
+              onFileOpened={onFileOpened ?? (() => { })}
+              onFileDeleted={onFileDeleted ?? (() => { })}
               onFileRenamed={onFileRenamed}
               onFileCreated={onFileCreated}
               onFolderCreated={onFolderCreated}
@@ -1006,8 +1011,8 @@ const FileTree = React.memo(function FileTree({
               onSetCreating={handleSetCreating}
               selectedFolder={selectedFolder}
               onSelectFolder={setSelectedFolder}
-              onFileOpened={onFileOpened ?? (() => {})}
-              onFileDeleted={onFileDeleted ?? (() => {})}
+              onFileOpened={onFileOpened ?? (() => { })}
+              onFileDeleted={onFileDeleted ?? (() => { })}
               onFileRenamed={onFileRenamed}
               onFileCreated={onFileCreated}
               onFolderCreated={onFolderCreated}
