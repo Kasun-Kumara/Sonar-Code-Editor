@@ -937,12 +937,10 @@ function IDEContent() {
                 });
                 return next;
               });
-              // Clear the Y.Text content so re-created files start fresh
-              try {
-                clearYTextRef.current(fullPath, wsRoot);
-              } catch (clearErr) {
-                console.error('clearYText on remote delete failed:', clearErr);
-              }
+              // We DELIBERATELY DO NOT call clearYTextRef.current here.
+              // The peer that initiated the delete already cleared the Y.Text,
+              // and Yjs will sync that deletion to us naturally. Doing it again
+              // here causes a race condition that can wipe out restored file text.
               break;
             case "rename": {
               const newRelPath = sanitizeRelPath(op.newRelativePath || "");
