@@ -901,7 +901,9 @@ function IDEContent() {
               }
               setTabs((prev) =>
                 prev.map((t) =>
-                  t.path === fullPath ? { ...t, isDeleted: false } : t
+                  t.path === fullPath
+                    ? { ...t, isDeleted: false, content: op.content || t.content }
+                    : t
                 )
               );
               break;

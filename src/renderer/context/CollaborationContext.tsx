@@ -672,7 +672,9 @@ export function CollaborationProvider({
         console.log(
           `Initializing collaborative document from local file: ${docName}`,
         );
-        ytext.insert(0, currentModelContent);
+        ydocRef.current.transact(() => {
+          ytext.insert(0, currentModelContent);
+        });
       }
 
       // Create the Monaco binding with awareness for cursor sync
