@@ -6,7 +6,7 @@ export const fileUndoStack: Array<{
   originalPath: string;
   trashPath: string;
   type: "file" | "directory";
-  onRestored: () => void;
+  onRestored: () => void | Promise<void>;
 }> = [];
 
 if (typeof window !== "undefined") {
@@ -21,7 +21,7 @@ if (typeof window !== "undefined") {
       if (lastOp) {
         try {
           await window.electronAPI.fs.renameItem(lastOp.trashPath, lastOp.originalPath);
-          lastOp.onRestored();
+          await lastOp.onRestored();
         } catch (err) {
           console.error("Failed to restore item:", err);
           fileUndoStack.push(lastOp); // put it back if failed
