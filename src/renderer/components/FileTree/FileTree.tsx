@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 
+// Global clipboard for cut/paste operations
+export let fileClipboard: { path: string; type: "file" | "directory"; action: "cut" | "copy" } | null = null;
+
 // Global undo stack for file tree operations
 export const fileUndoStack: Array<{ 
   originalPath: string; 
@@ -261,13 +264,15 @@ interface FileTreeNodeProps {
   workspaceRoot: string;
   creatingItem: CreatingItem | null;
   onSetCreating: (item: CreatingItem | null) => void;
-  selectedFolder: string | null;
-  onSelectFolder: (path: string) => void;
-  onFileOpened: (path: string, name: string, isPreview?: boolean) => void;
-  onFileDeleted: (path: string, type: "file" | "directory") => void;
+  selectedNode: { path: string; type: "file" | "directory" } | null;
+  onSelectNode: (node: { path: string; type: "file" | "directory" } | null) => void;
+  onFileOpened?: (path: string, name: string, isPreview?: boolean) => void;
+  onFileDeleted?: (path: string, type: "file" | "directory", skipBroadcast?: boolean) => void;
   onFileRenamed?: (oldPath: string, newPath: string) => void;
   onFileCreated?: (path: string, name: string, savedContent?: string, isUndo?: boolean) => void;
   onFolderCreated?: (path: string) => void;
+  onFileCopied?: (newPath: string, type: "file" | "directory") => void;
+  onFileMoved?: () => void;
   refreshTrigger?: number;
 }
 
@@ -281,13 +286,15 @@ function FileTreeNode({
   workspaceRoot,
   creatingItem,
   onSetCreating,
-  selectedFolder,
-  onSelectFolder,
+  selectedNode,
+  onSelectNode,
   onFileOpened,
   onFileDeleted,
   onFileRenamed,
   onFileCreated,
   onFolderCreated,
+  onFileCopied,
+  onFileMoved,
   refreshTrigger,
 }: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
@@ -296,10 +303,17 @@ function FileTreeNode({
     x: number;
     y: number;
   } | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isCut, setIsCut] = useState(() => fileClipboard?.action === "cut" && fileClipboard?.path === node.path);
+  const dragCounter = useRef(0);
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(node.name);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const renameBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastProcessedActivePath = useRef<string | null>(null);
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const commitRenameRef = useRef(false);
+  const childrenDragCounter = useRef(0);
 
   const hasChildFolders = children.some((c) => c.type === "directory");
 
@@ -312,7 +326,15 @@ function FileTreeNode({
     if (node.type === "directory") {
       try {
         const items = await window.electronAPI.fs.readDirectory(node.path);
-        setChildren(items);
+        // Deduplicate by normalized path to prevent React duplicate key errors
+        const seen = new Set<string>();
+        const unique = items.filter((item) => {
+          const norm = item.path.replace(/\\/g, "/").toLowerCase();
+          if (seen.has(norm)) return false;
+          seen.add(norm);
+          return true;
+        });
+        setChildren(unique);
       } catch (err) {
         // Directory may have been renamed/deleted by a collaboration peer.
         // Silently return stale children instead of crashing.
@@ -329,10 +351,36 @@ function FileTreeNode({
   }, [isCreatingHere, expanded, loadChildren]);
 
   useEffect(() => {
+    const handleClipboardUpdate = () => {
+      setIsCut(fileClipboard?.action === "cut" && fileClipboard?.path === node.path);
+    };
+    window.addEventListener("clipboard-updated", handleClipboardUpdate);
+    return () => window.removeEventListener("clipboard-updated", handleClipboardUpdate);
+  }, [node.path]);
+
+  useEffect(() => {
     if (expanded && typeof refreshTrigger === 'number' && refreshTrigger > 0) {
       loadChildren();
     }
   }, [refreshTrigger, expanded, loadChildren]);
+
+  useEffect(() => {
+    if (activeFilePath !== lastProcessedActivePath.current) {
+      lastProcessedActivePath.current = activeFilePath;
+      
+      if (node.type === "directory" && activeFilePath) {
+        const normalizedActive = activeFilePath.replace(/\\/g, "/");
+        const normalizedNode = node.path.replace(/\\/g, "/");
+        
+        if (normalizedActive.startsWith(normalizedNode + "/")) {
+          if (!expanded) {
+            setExpanded(true);
+            loadChildren();
+          }
+        }
+      }
+    }
+  }, [activeFilePath, node.path, node.type, expanded, loadChildren]);
 
   const toggleExpanded = async () => {
     if (node.type !== "directory") return;
@@ -382,7 +430,7 @@ function FileTreeNode({
         await window.electronAPI.fs.createFile(fullPath);
         await loadChildren();
         onFileCreated?.(fullPath, name);
-        onFileOpened(fullPath, name, false);
+        onFileOpened?.(fullPath, name, false);
       } else {
         await window.electronAPI.fs.createFolder(fullPath);
         await loadChildren();
@@ -437,10 +485,214 @@ function FileTreeNode({
         }
       });
       
-      onFileDeleted(node.path, node.type);
+      onFileDeleted?.(node.path, node.type);
       onRefresh();
     } catch (err) {
       console.error("Failed to delete item:", err);
+    }
+  };
+
+  const handleCut = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    closeContextMenu();
+    fileClipboard = { path: node.path, type: node.type, action: "cut" };
+    window.dispatchEvent(new CustomEvent("clipboard-updated"));
+  };
+
+  const handleCopy = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    closeContextMenu();
+    fileClipboard = { path: node.path, type: node.type, action: "copy" };
+    window.dispatchEvent(new CustomEvent("clipboard-updated"));
+  };
+
+  const handlePaste = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    closeContextMenu();
+    if (!fileClipboard) return;
+
+    const targetDir = node.type === "directory" ? node.path : node.path.substring(0, Math.max(node.path.lastIndexOf("/"), node.path.lastIndexOf("\\")));
+    const fileName = fileClipboard.path.substring(Math.max(fileClipboard.path.lastIndexOf("/"), fileClipboard.path.lastIndexOf("\\")) + 1);
+    const newPath = `${targetDir}/${fileName}`.replace(/\\/g, "/");
+
+    if (fileClipboard.action === "cut" && newPath === fileClipboard.path) return;
+
+    try {
+      if (fileClipboard.action === "cut") {
+        // Close the file in the editor BEFORE moving to avoid errors if the
+        // destination already exists and gets its content overwritten or merged
+        // Pass skipBroadcast=true so this local-only tab close doesn't delete the file for other peers!
+        onFileDeleted?.(fileClipboard.path, fileClipboard.type, true);
+        
+        // Perform disk rename FIRST, then update tabs on success
+        let finalPath = newPath;
+        try {
+          const result = await window.electronAPI.fs.renameItem(fileClipboard.path, newPath);
+          if (result) finalPath = result.replace(/\\/g, "/");
+        } catch (err) {
+          console.error("Paste failed on disk:", err);
+          return;
+        }
+        onFileRenamed?.(fileClipboard.path, finalPath);
+        fileClipboard = null;
+        window.dispatchEvent(new CustomEvent("clipboard-updated"));
+        onFileMoved?.();
+      } else if (fileClipboard.action === "copy") {
+        let finalPath = newPath;
+        try {
+          const resultPath = await window.electronAPI.fs.copyItem(fileClipboard.path, newPath);
+          if (resultPath) finalPath = resultPath.replace(/\\/g, "/");
+        } catch (err) {
+          console.error("Paste copy failed on disk:", err);
+          return;
+        }
+        // For copy, we don't clear the clipboard so the user can paste multiple times.
+        onFileCopied?.(finalPath, fileClipboard.type);
+        onFileMoved?.();
+      }
+      
+      onRefresh();
+    } catch (err) {
+      console.error("Paste parse failed:", err);
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.stopPropagation();
+    e.dataTransfer.setData("application/sonar-file", JSON.stringify({ path: node.path, type: node.type }));
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  // --- Folder-level drag handlers (only used on directory nodes) ---
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (node.type !== "directory") return; // files don't handle drag highlights
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (dragCounter.current === 1) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (node.type === "directory") e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (node.type !== "directory") return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current === 0) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    dragCounter.current = 0;
+    setIsDragOver(false);
+
+    const data = e.dataTransfer.getData("application/sonar-file");
+    if (!data) return;
+
+    // Always resolve the target as this node's parent folder (for files)
+    // or this node itself (for directories).
+    const targetDir = node.type === "directory" ? node.path : node.path.substring(0, Math.max(node.path.lastIndexOf("/"), node.path.lastIndexOf("\\")));
+
+    try {
+      const source = JSON.parse(data);
+      const fileName = source.path.substring(Math.max(source.path.lastIndexOf("/"), source.path.lastIndexOf("\\")) + 1);
+      const newPath = `${targetDir}/${fileName}`.replace(/\\/g, "/");
+
+      if (newPath === source.path) return;
+
+      // Close the file in the editor BEFORE moving
+      // Pass skipBroadcast=true so this local-only tab close doesn't delete the file for other peers!
+      onFileDeleted?.(source.path, source.type, true);
+
+      // Perform disk rename FIRST to avoid CRDT merge issues on collision
+      let finalPath: string;
+      try {
+        const result = await window.electronAPI.fs.renameItem(source.path, newPath);
+        finalPath = (result || newPath).replace(/\\/g, "/");
+      } catch (err) {
+        console.error("Drop failed on disk:", err);
+        return;
+      }
+      onFileRenamed?.(source.path, finalPath);
+      onRefresh();
+      onFileMoved?.();
+    } catch (err) {
+      console.error("Drop failed:", err);
+    }
+  };
+
+  // --- Handlers for the tree-children container (highlights parent folder when dragging over children) ---
+
+  const handleChildrenDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    childrenDragCounter.current += 1;
+    if (childrenDragCounter.current === 1) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleChildrenDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleChildrenDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    childrenDragCounter.current -= 1;
+    if (childrenDragCounter.current === 0) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleChildrenDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    childrenDragCounter.current = 0;
+    dragCounter.current = 0;
+    setIsDragOver(false);
+
+    const data = e.dataTransfer.getData("application/sonar-file");
+    if (!data) return;
+
+    try {
+      const source = JSON.parse(data);
+      const fileName = source.path.substring(Math.max(source.path.lastIndexOf("/"), source.path.lastIndexOf("\\")) + 1);
+      const newPath = `${node.path}/${fileName}`.replace(/\\/g, "/");
+
+      if (newPath === source.path) return;
+
+      // Close the file in the editor BEFORE moving
+      // Pass skipBroadcast=true so this local-only tab close doesn't delete the file for other peers!
+      onFileDeleted?.(source.path, source.type, true);
+
+      // Perform disk rename FIRST to avoid CRDT merge issues on collision
+      let finalPath: string;
+      try {
+        const result = await window.electronAPI.fs.renameItem(source.path, newPath);
+        finalPath = (result || newPath).replace(/\\/g, "/");
+      } catch (err) {
+        console.error("Drop in children failed on disk:", err);
+        return;
+      }
+      onFileRenamed?.(source.path, finalPath);
+      onRefresh();
+      onFileMoved?.();
+    } catch (err) {
+      console.error("Drop in children failed:", err);
     }
   };
 
@@ -451,7 +703,7 @@ function FileTreeNode({
     commitRenameRef.current = false;
   };
 
-  const commitRenameRef = useRef(false);
+
 
   const commitRename = async () => {
     if (commitRenameRef.current) return;
@@ -461,18 +713,19 @@ function FileTreeNode({
     if (newName !== node.name && newName.trim()) {
       const dir = node.path.split(/[\\/]/).slice(0, -1).join("/");
       const newPath = `${dir}/${newName.trim()}`;
+      // Perform disk rename FIRST to avoid CRDT merge issues on collision
+      let finalPath: string;
       try {
-        await window.electronAPI.fs.renameItem(node.path, newPath);
+        const result = await window.electronAPI.fs.renameItem(node.path, newPath);
+        finalPath = (result || newPath).replace(/\\/g, "/");
       } catch (err) {
         console.error("Local rename failed:", err);
         commitRenameRef.current = false;
         onRefresh();
         return;
       }
-      // Broadcast the rename to collaboration peers even if the tab update
-      // below encounters an issue – this is the critical sync step.
       try {
-        onFileRenamed?.(node.path, newPath);
+        onFileRenamed?.(node.path, finalPath);
       } catch (err) {
         console.error('broadcastRename failed:', err);
       }
@@ -557,27 +810,64 @@ function FileTreeNode({
     }
   }, [contextMenu]);
 
-  const isActive = node.type === "file" && node.path.replace(/\\/g, "/") === (activeFilePath || "").replace(/\\/g, "/");
-  const isSelected = node.type === "directory" && node.path === selectedFolder;
+  const isSelected = selectedNode?.path.replace(/\\/g, "/") === node.path.replace(/\\/g, "/");
+  const isSelectedFile = isSelected && node.type === "file";
+  const isSelectedFolder = isSelected && node.type === "directory";
+
+  useEffect(() => {
+    if (isSelectedFile && nodeRef.current) {
+      setTimeout(() => {
+        nodeRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      }, 50);
+    }
+  }, [isSelectedFile]);
 
   return (
-    <div className="tree-node-wrapper">
+    <div className="tree-node-wrapper" ref={nodeRef}>
       <div
-        className={`tree-node ${isActive ? "active" : ""} ${isSelected ? "selected-folder" : ""}`}
+        className={`tree-node ${isSelectedFile ? "active" : ""} ${isSelectedFolder ? "selected-folder" : ""} ${isDragOver && node.type === "directory" ? "drag-over" : ""} ${isCut ? "cut-node" : ""}`}
         style={{ paddingLeft: `${depth * INDENT_PX + 8}px` }}
+        draggable={!renaming}
+        onDragStart={handleDragStart}
+        {...(node.type === "directory" ? {
+          onDragEnter: handleDragEnter,
+          onDragOver: handleDragOver,
+          onDragLeave: handleDragLeave,
+          onDrop: handleDrop,
+        } : {
+          onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; },
+        })}
         onKeyDown={(e) => {
           if (renaming) return;
-          if (e.key === "F2") {
+          if (e.key.toLowerCase() === "x" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
+            e.stopPropagation();
+            handleCut();
+          } else if (e.key.toLowerCase() === "c" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleCopy();
+          } else if (e.key.toLowerCase() === "v" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            handlePaste();
+          } else if (e.key === "F2") {
+            e.preventDefault();
+            e.stopPropagation();
             startRename();
           } else if (e.key === "Delete" || e.key === "Del" || (e.metaKey && e.key === "Backspace")) {
             e.preventDefault();
+            e.stopPropagation();
             handleDeleteMenuClick();
           } else if (e.key === "Enter") {
             e.preventDefault();
+            e.stopPropagation();
+            onSelectNode({ path: node.path, type: node.type });
             if (node.type === "file") onFileClick(node.path, node.name);
             else {
-              onSelectFolder(node.path);
               toggleExpanded();
             }
           }
@@ -586,13 +876,16 @@ function FileTreeNode({
         onClick={(e) => {
           e.stopPropagation();
           (e.currentTarget as HTMLElement).focus();
+          onSelectNode({ path: node.path, type: node.type });
           if (node.type === "file") onFileClick(node.path, node.name);
           else {
-            onSelectFolder(node.path);
             toggleExpanded();
           }
         }}
-        onContextMenu={handleContextMenu}
+        onContextMenu={(e) => {
+          onSelectNode({ path: node.path, type: node.type });
+          handleContextMenu(e);
+        }}
       >
         {hasFolders ? (
           node.type === "directory" ? (
@@ -646,6 +939,22 @@ function FileTreeNode({
               <span>New Folder</span>
             </div>
             <div className="context-menu-separator" />
+            <div className="context-menu-item" onClick={handleCut}>
+              <span>Cut</span>
+              <span className="context-menu-shortcut">{isWindows ? "Ctrl+X" : "⌘X"}</span>
+            </div>
+            <div className="context-menu-item" onClick={handleCopy}>
+              <span>Copy</span>
+              <span className="context-menu-shortcut">{isWindows ? "Ctrl+C" : "⌘C"}</span>
+            </div>
+            <div
+              className={`context-menu-item ${!fileClipboard ? "disabled" : ""}`}
+              onClick={handlePaste}
+            >
+              <span>Paste</span>
+              <span className="context-menu-shortcut">{isWindows ? "Ctrl+V" : "⌘V"}</span>
+            </div>
+            <div className="context-menu-separator" />
             <div className="context-menu-item" onClick={startRename}>
               <span>Rename</span>
               <span className="context-menu-shortcut">F2</span>
@@ -660,7 +969,13 @@ function FileTreeNode({
           )}
 
       {expanded && node.type === "directory" && (
-        <div className="tree-children">
+        <div
+          className="tree-children"
+          onDragEnter={handleChildrenDragEnter}
+          onDragOver={handleChildrenDragOver}
+          onDragLeave={handleChildrenDragLeave}
+          onDrop={handleChildrenDrop}
+        >
           {isCreatingHere && creatingItem?.type === "folder" && (
             <InlineCreateInput
               type={creatingItem.type}
@@ -684,13 +999,15 @@ function FileTreeNode({
                 workspaceRoot={workspaceRoot}
                 creatingItem={creatingItem}
                 onSetCreating={onSetCreating}
-                selectedFolder={selectedFolder}
-                onSelectFolder={onSelectFolder}
+                selectedNode={selectedNode}
+                onSelectNode={onSelectNode}
                 onFileOpened={onFileOpened}
                 onFileDeleted={onFileDeleted}
                 onFileRenamed={onFileRenamed}
                 onFileCreated={onFileCreated}
                 onFolderCreated={onFolderCreated}
+                onFileCopied={onFileCopied}
+                onFileMoved={onFileMoved}
                 refreshTrigger={refreshTrigger}
               />
             ))}
@@ -717,13 +1034,15 @@ function FileTreeNode({
                 workspaceRoot={workspaceRoot}
                 creatingItem={creatingItem}
                 onSetCreating={onSetCreating}
-                selectedFolder={selectedFolder}
-                onSelectFolder={onSelectFolder}
+                selectedNode={selectedNode}
+                onSelectNode={onSelectNode}
                 onFileOpened={onFileOpened}
                 onFileDeleted={onFileDeleted}
                 onFileRenamed={onFileRenamed}
                 onFileCreated={onFileCreated}
                 onFolderCreated={onFolderCreated}
+                onFileCopied={onFileCopied}
+                onFileMoved={onFileMoved}
                 refreshTrigger={refreshTrigger}
               />
             ))}
@@ -742,10 +1061,12 @@ interface FileTreeProps {
   onAutoSaveChange: (autoSave: boolean) => void;
   onFileOpened?: (path: string, name: string, isPreview?: boolean) => void;
   newFileTrigger?: number;
-  onFileDeleted?: (path: string, type: "file" | "directory") => void;
+  onFileDeleted?: (path: string, type: "file" | "directory", skipBroadcast?: boolean) => void;
   onFileRenamed?: (oldPath: string, newPath: string) => void;
   onFileCreated?: (path: string, name: string, savedContent?: string, isUndo?: boolean) => void;
   onFolderCreated?: (path: string) => void;
+  onFileCopied?: (newPath: string, type: "file" | "directory") => void;
+  onFileMoved?: () => void;
   refreshTrigger?: number;
 }
 
@@ -762,12 +1083,14 @@ const FileTree = React.memo(function FileTree({
   onFileRenamed,
   onFileCreated,
   onFolderCreated,
+  onFileCopied,
+  onFileMoved,
   refreshTrigger,
 }: FileTreeProps) {
   const [rootNodes, setRootNodes] = useState<FileNode[]>([]);
   const [creatingItem, setCreatingItem] = useState<CreatingItem | null>(null);
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(
-    workspaceRoot,
+  const [selectedNode, setSelectedNode] = useState<{ path: string; type: "file" | "directory" } | null>(
+    workspaceRoot ? { path: workspaceRoot, type: "directory" } : null
   );
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -776,10 +1099,19 @@ const FileTree = React.memo(function FileTree({
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (activeFilePath) {
+      setSelectedNode({ path: activeFilePath, type: "file" });
+    }
+  }, [activeFilePath]);
+
+  useEffect(() => {
     if (!newFileTrigger || !workspaceRoot) return;
+    const pPath = selectedNode
+      ? (selectedNode.type === "directory" ? selectedNode.path : selectedNode.path.split(/[/\\]/).slice(0, -1).join("/"))
+      : workspaceRoot;
     setCreatingItem({
       type: "file",
-      parentPath: selectedFolder ?? workspaceRoot,
+      parentPath: pPath,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newFileTrigger]);
@@ -807,21 +1139,21 @@ const FileTree = React.memo(function FileTree({
     }
   }, [contextMenu]);
 
-  useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setSelectedFolder(null);
-      }
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, []);
+
 
   const loadRoot = useCallback(async () => {
     if (!workspaceRoot) return;
     try {
       const items = await window.electronAPI.fs.readDirectory(workspaceRoot);
-      setRootNodes(items);
+      // Deduplicate by normalized path to prevent React duplicate key errors
+      const seen = new Set<string>();
+      const unique = items.filter((item) => {
+        const norm = item.path.replace(/\\/g, "/").toLowerCase();
+        if (seen.has(norm)) return false;
+        seen.add(norm);
+        return true;
+      });
+      setRootNodes(unique);
     } catch (err) {
       console.warn('loadRoot failed:', err);
       // Don't clear rootNodes — keep showing stale data so UI isn't blank
@@ -842,6 +1174,98 @@ const FileTree = React.memo(function FileTree({
 
   const handleSetCreating = (item: CreatingItem | null) => {
     setCreatingItem(item);
+  };
+
+  const handleRootPaste = async () => {
+    setContextMenu(null);
+    if (!fileClipboard || !workspaceRoot) return;
+
+    const fileName = fileClipboard.path.substring(Math.max(fileClipboard.path.lastIndexOf("/"), fileClipboard.path.lastIndexOf("\\")) + 1);
+    const newPath = `${workspaceRoot.replace(/\\/g, "/")}/${fileName}`;
+
+    if (fileClipboard.action === "cut" && newPath === fileClipboard.path) return;
+
+    try {
+      if (fileClipboard.action === "cut") {
+        // Close the file in the editor BEFORE moving to avoid errors if the
+        // destination already exists and gets its content overwritten or merged
+        // Pass skipBroadcast=true so this local-only tab close doesn't delete the file for other peers!
+        onFileDeleted?.(fileClipboard.path, fileClipboard.type, true);
+
+        // Perform disk rename FIRST, then update tabs on success
+        let finalPath = newPath;
+        try {
+          const result = await window.electronAPI.fs.renameItem(fileClipboard.path, newPath);
+          if (result) finalPath = result.replace(/\\/g, "/");
+        } catch (err) {
+          console.error("Paste failed at root:", err);
+          return;
+        }
+        onFileRenamed?.(fileClipboard.path, finalPath);
+        fileClipboard = null;
+        window.dispatchEvent(new CustomEvent("clipboard-updated"));
+        onFileMoved?.();
+      } else if (fileClipboard.action === "copy") {
+        let finalPath = newPath;
+        try {
+          const resultPath = await window.electronAPI.fs.copyItem(fileClipboard.path, newPath);
+          if (resultPath) finalPath = resultPath.replace(/\\/g, "/");
+        } catch (err) {
+          console.error("Paste copy failed at root:", err);
+          return;
+        }
+        onFileCopied?.(finalPath, fileClipboard.type);
+        onFileMoved?.();
+      }
+      loadRoot();
+    } catch (err) {
+      console.error("Paste failed at root:", err);
+    }
+  };
+
+  const handleRootDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleRootDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleRootDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const data = e.dataTransfer.getData("application/sonar-file");
+    if (!data || !workspaceRoot) return;
+
+    try {
+      const source = JSON.parse(data);
+      const fileName = source.path.substring(Math.max(source.path.lastIndexOf("/"), source.path.lastIndexOf("\\")) + 1);
+      const newPath = `${workspaceRoot.replace(/\\/g, "/")}/${fileName}`;
+
+      if (newPath === source.path) return;
+
+      // Close the file in the editor BEFORE moving to avoid errors if the
+      // destination already exists and gets its content overwritten or merged
+      // Pass skipBroadcast=true so this local-only tab close doesn't delete the file for other peers!
+      onFileDeleted?.(source.path, source.type, true);
+
+      // Perform disk rename FIRST to avoid CRDT merge issues on collision
+      let finalPath: string;
+      try {
+        const result = await window.electronAPI.fs.renameItem(source.path, newPath);
+        finalPath = (result || newPath).replace(/\\/g, "/");
+      } catch (err) {
+        console.error("Drop failed at root:", err);
+        return;
+      }
+      onFileRenamed?.(source.path, finalPath);
+      loadRoot();
+      onFileMoved?.();
+    } catch (err) {
+      console.error("Drop failed at root (parse):", err);
+    }
   };
 
   const hasRootFolders = rootNodes.some((n) => n.type === "directory");
@@ -874,7 +1298,23 @@ const FileTree = React.memo(function FileTree({
     <div
       ref={panelRef}
       className="file-tree-panel"
-      onClick={() => setSelectedFolder(workspaceRoot)}
+      onClick={() => {
+        if (workspaceRoot) setSelectedNode({ path: workspaceRoot, type: "directory" });
+      }}
+      onDragEnter={handleRootDragEnter}
+      onDragOver={handleRootDragOver}
+      onDrop={handleRootDrop}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        // Only handle Cmd+V at root level if the event did NOT originate
+        // from within a tree-node (which has its own paste handler).
+        // Without this check, keydown bubbles up and paste fires TWICE.
+        if (e.key.toLowerCase() === "v" && (e.metaKey || e.ctrlKey)) {
+          if ((e.target as HTMLElement).closest(".tree-node")) return;
+          e.preventDefault();
+          handleRootPaste();
+        }
+      }}
       onContextMenu={(e) => {
         // Prevent default browser context menu and only show root context if clicking dead space
         if ((e.target as HTMLElement).closest(".tree-node")) return;
@@ -882,7 +1322,7 @@ const FileTree = React.memo(function FileTree({
         e.stopPropagation();
         document.dispatchEvent(new CustomEvent("close-context-menus"));
         setContextMenu({ x: e.clientX, y: e.clientY });
-        setSelectedFolder(workspaceRoot);
+        if (workspaceRoot) setSelectedNode({ path: workspaceRoot, type: "directory" });
       }}
     >
       <div className="tree-header" title={workspaceRoot}>
@@ -895,9 +1335,10 @@ const FileTree = React.memo(function FileTree({
             title="New File"
             onClick={(e) => {
               e.stopPropagation();
+              const pPath = selectedNode ? (selectedNode.type === "directory" ? selectedNode.path : selectedNode.path.split(/[/\\]/).slice(0, -1).join("/")) : workspaceRoot;
               setCreatingItem({
                 type: "file",
-                parentPath: selectedFolder ?? workspaceRoot,
+                parentPath: pPath,
               });
             }}
           >
@@ -908,9 +1349,10 @@ const FileTree = React.memo(function FileTree({
             title="New Folder"
             onClick={(e) => {
               e.stopPropagation();
+              const pPath = selectedNode ? (selectedNode.type === "directory" ? selectedNode.path : selectedNode.path.split(/[/\\]/).slice(0, -1).join("/")) : workspaceRoot;
               setCreatingItem({
                 type: "folder",
-                parentPath: selectedFolder ?? workspaceRoot,
+                parentPath: pPath,
               });
             }}
           >
@@ -957,13 +1399,15 @@ const FileTree = React.memo(function FileTree({
               workspaceRoot={workspaceRoot}
               creatingItem={creatingItem}
               onSetCreating={handleSetCreating}
-              selectedFolder={selectedFolder}
-              onSelectFolder={setSelectedFolder}
+              selectedNode={selectedNode}
+              onSelectNode={setSelectedNode}
               onFileOpened={onFileOpened ?? (() => {})}
               onFileDeleted={onFileDeleted ?? (() => {})}
               onFileRenamed={onFileRenamed}
               onFileCreated={onFileCreated}
               onFolderCreated={onFolderCreated}
+              onFileCopied={onFileCopied}
+              onFileMoved={onFileMoved}
               refreshTrigger={refreshTrigger}
             />
           ))}
@@ -1006,13 +1450,15 @@ const FileTree = React.memo(function FileTree({
               workspaceRoot={workspaceRoot}
               creatingItem={creatingItem}
               onSetCreating={handleSetCreating}
-              selectedFolder={selectedFolder}
-              onSelectFolder={setSelectedFolder}
+              selectedNode={selectedNode}
+              onSelectNode={setSelectedNode}
               onFileOpened={onFileOpened ?? (() => {})}
               onFileDeleted={onFileDeleted ?? (() => {})}
               onFileRenamed={onFileRenamed}
               onFileCreated={onFileCreated}
               onFolderCreated={onFolderCreated}
+              onFileCopied={onFileCopied}
+              onFileMoved={onFileMoved}
               refreshTrigger={refreshTrigger}
             />
           ))}
@@ -1041,6 +1487,14 @@ const FileTree = React.memo(function FileTree({
               }}
             >
               <span>New Folder</span>
+            </div>
+            <div className="context-menu-separator" />
+            <div
+              className={`context-menu-item ${!fileClipboard ? "disabled" : ""}`}
+              onClick={handleRootPaste}
+            >
+              <span>Paste</span>
+              <span className="context-menu-shortcut">{isWindows ? "Ctrl+V" : "⌘V"}</span>
             </div>
           </div>,
           document.body,

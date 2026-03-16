@@ -275,13 +275,31 @@ export function registerFsHandlers(ipcMain: IpcMain, dialog: Dialog): void {
       const isCaseOnlyRename =
         oldBase !== newBase && oldBase.toLowerCase() === newBase.toLowerCase();
 
+      // Auto-rename on collision: if a different file already exists at the
+      // destination, generate a unique name (e.g. "file copy.txt",
+      // "file copy 2.txt") instead of overwriting or throwing.
+      // Case-only renames are exempt (same file, different casing).
+      let finalNewPath = newPath;
+      if (!isCaseOnlyRename && normPath(oldPath) !== normPath(newPath) && fs.existsSync(newPath)) {
+        const ext = path.extname(newPath);
+        const base = path.basename(newPath, ext);
+        const targetDir = path.dirname(newPath);
+        let counter = 1;
+        while (fs.existsSync(finalNewPath)) {
+          finalNewPath = path.join(targetDir, `${base} copy${counter > 1 ? ` ${counter}` : ''}${ext}`);
+          counter++;
+        }
+      }
+
       if (isCaseOnlyRename) {
         const tmpPath = oldPath + '.__rename_tmp__';
         await fsp.rename(oldPath, tmpPath);
-        await fsp.rename(tmpPath, newPath);
+        await fsp.rename(tmpPath, finalNewPath);
       } else {
-        await fsp.rename(oldPath, newPath);
+        await fsp.rename(oldPath, finalNewPath);
       }
+
+      return finalNewPath;
     } catch (err) {
       // ENOENT during rename is treated as non-fatal (collab race condition)
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -289,6 +307,40 @@ export function registerFsHandlers(ipcMain: IpcMain, dialog: Dialog): void {
         return;
       }
       throw new Error(`Failed to rename item: ${(err as Error).message}`);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FS_COPY_ITEM, async (_event, srcPath: string, destPath: string) => {
+    try {
+      if (!srcPath || !destPath) throw new Error('Missing path for copy');
+      if (!fs.existsSync(srcPath)) throw new Error('Source path does not exist');
+
+      // Ensure target parent directory exists
+      const targetDir = path.dirname(destPath);
+      if (!fs.existsSync(targetDir)) {
+        await fsp.mkdir(targetDir, { recursive: true });
+      }
+
+      let finalDestPath = destPath;
+      if (fs.existsSync(finalDestPath)) {
+        const ext = path.extname(finalDestPath);
+        const base = path.basename(finalDestPath, ext);
+        let counter = 1;
+        while (fs.existsSync(finalDestPath)) {
+          finalDestPath = path.join(targetDir, `${base} copy${counter > 1 ? ` ${counter}` : ''}${ext}`);
+          counter++;
+        }
+      }
+
+      const destBase = path.basename(finalDestPath);
+      const nameErr = validateName(destBase);
+      if (nameErr) throw new Error(nameErr);
+
+      await fsp.cp(srcPath, finalDestPath, { recursive: true });
+      
+      return finalDestPath;
+    } catch (err) {
+      throw new Error(`Failed to copy item: ${(err as Error).message}`);
     }
   });
 
